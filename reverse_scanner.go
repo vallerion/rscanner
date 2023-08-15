@@ -55,8 +55,10 @@ type Scanner struct {
 }
 
 func (bs *Scanner) Scan() bool {
-	if bs.done {
+	if bs.done || bs.err != nil {
 		bs.token = nil
+		bs.start = bs.bufSize
+		bs.end = bs.bufSize
 		return false
 	}
 	bs.scanCalled = true
@@ -69,24 +71,21 @@ func (bs *Scanner) Scan() bool {
 				bs.buf = make([]byte, bs.bufSize)
 			}
 
-			n, err := bs.r.ReadAt(bs.buf[0:bs.start], bs.rOffset)
-			if err != nil {
-				bs.setErr(err)
-				return false
+			off := bs.rOffset
+			for left := 0; left < bs.start; {
+				n, err := bs.r.ReadAt(bs.buf[left:bs.start], off)
+				if n < 0 || n > bs.start {
+					bs.setErr(ErrBadReadCount)
+					return false
+				}
+				if err != nil {
+					bs.setErr(err)
+					return false
+				}
+				left += n
+				off += int64(n)
 			}
 			bs.start = 0
-			//if n < bs.end-bs.start {
-			//	bs.end = bs.start + n // TODO bug
-			//}
-			if n > bs.end-bs.start {
-				bs.setErr(ErrBadReadCount)
-				return false
-			}
-			//if bs.start < n {
-			//	copy(bs.buf[bs.start-n:bs.start], bs.buf[0:n])
-			//	bs.start -= n
-			//	bs.decreaseOffset(int64(n))
-			//}
 			bs.needRead = false
 		}
 
@@ -96,6 +95,7 @@ func (bs *Scanner) Scan() bool {
 			bs.setErr(err)
 			return false
 		}
+		bs.token = token
 
 		if advance < 0 {
 			bs.setErr(ErrNegativeAdvance)
@@ -109,20 +109,21 @@ func (bs *Scanner) Scan() bool {
 
 		if advance > 0 || token != nil {
 			bs.end = bs.start + advance
-		}
-
-		if token != nil {
-			bs.token = token
-			// todo s.empties
 			return true
 		}
 
-		if bs.err != nil {
-			// Shut it down.
-			bs.start = bs.bufSize
-			bs.end = bs.bufSize
-			return false
-		}
+		//if token != nil {
+		//	bs.token = token
+		//	todo s.empties
+		//return true
+		//}
+
+		//if bs.err != nil {
+		//	// Shut it down.
+		//	bs.start = bs.bufSize
+		//	bs.end = bs.bufSize
+		//	return false
+		//}
 
 		if bs.rOffset == 0 {
 			bs.token = bytes.Trim(bs.buf[bs.start:bs.end], "\r\n")
