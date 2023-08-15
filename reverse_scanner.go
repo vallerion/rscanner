@@ -63,10 +63,7 @@ func (bs *Scanner) Scan() bool {
 
 	for {
 		if bs.needRead {
-			bs.rOffset -= int64(bs.start)
-			if bs.rOffset < 0 {
-				bs.rOffset = 0
-			}
+			bs.decreaseOffset(int64(bs.start))
 
 			if len(bs.buf) == 0 {
 				bs.buf = make([]byte, bs.bufSize)
@@ -85,6 +82,11 @@ func (bs *Scanner) Scan() bool {
 				bs.setErr(ErrBadReadCount)
 				return false
 			}
+			//if bs.start < n {
+			//	copy(bs.buf[bs.start-n:bs.start], bs.buf[0:n])
+			//	bs.start -= n
+			//	bs.decreaseOffset(int64(n))
+			//}
 			bs.needRead = false
 		}
 
@@ -163,6 +165,13 @@ func (bs *Scanner) Scan() bool {
 			bs.end = newSize
 			bs.bufSize = newSize
 		}
+	}
+}
+
+func (bs *Scanner) decreaseOffset(n int64) {
+	bs.rOffset -= n
+	if bs.rOffset < 0 {
+		bs.rOffset = 0
 	}
 }
 

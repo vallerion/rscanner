@@ -5,12 +5,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vallerion/rscanner"
 	"golang.org/x/exp/slices"
+	"io"
 	"strings"
 	"testing"
 )
 
 func TestVsBufioScanner(t *testing.T) {
-	l := generateLines(1000)
+	l := generateLines(0, 1000)
 
 	act := strings.Join(l, "\n")
 	slices.Reverse(l)
@@ -24,19 +25,36 @@ func TestVsBufioScanner(t *testing.T) {
 		require.Equal(t, expSc.Err(), actSc.Err())
 		require.Equal(t, expSc.Bytes(), actSc.Bytes())
 	}
+	require.Equal(t, expSc.Scan(), actSc.Scan())
+	require.Equal(t, expSc.Err(), actSc.Err())
+	require.Equal(t, expSc.Bytes(), actSc.Bytes())
 }
 
-func generateLines(n int) []string {
+// slowReader is a reader that returns only a few bytes at a time, to test the incremental
+// reads in Scanner.Scan.
+type slowReader struct {
+	max int
+	buf io.ReaderAt
+}
+
+func (sr *slowReader) ReadAt(p []byte, off int64) (n int, err error) {
+	if len(p) > sr.max {
+		p = p[0:sr.max]
+	}
+	return sr.buf.ReadAt(p, off)
+}
+
+func generateLines(minLength, n int) []string {
 	lines := make([]string, n)
-	for i := 0; i < n; i++ {
-		lines[i] = strings.Repeat("U", i)
+	for i := minLength; i < minLength+n; i++ {
+		lines[i-minLength] = strings.Repeat("U", i)
 	}
 
 	return lines
 }
 
 func testLines(t *testing.T, tokenSize int, withCR bool) {
-	lines := generateLines(tokenSize * 2)
+	lines := generateLines(0, tokenSize*2)
 
 	var s string
 	if withCR {
@@ -58,10 +76,31 @@ func testLines(t *testing.T, tokenSize int, withCR bool) {
 		}
 		require.Equal(t, lines[i], sc.Text())
 	}
+
+	require.False(t, sc.Scan())
+	require.Nil(t, sc.Err())
 }
 
-func TestLines(t *testing.T) {
-	for tokenSize := 0; tokenSize < 100; tokenSize++ {
+func TestScanLines(t *testing.T) {
+	for tokenSize := 1; tokenSize < 256; tokenSize++ {
 		testLines(t, tokenSize*2, true)
 	}
 }
+
+//func TestScanTooLong(t *testing.T) {
+//	tokenSize := 10
+//	lines := generateLines(tokenSize-1, 3)
+//
+//	slices.Reverse(lines)
+//	s := strings.Join(lines, "\n")
+//
+//	r := strings.NewReader(s)
+//	sc := rscanner.NewScanner(&slowReader{1, r}, int64(len(s)))
+//	sc.MaxTokenSize(tokenSize)
+//	sc.Buffer(make([]byte, tokenSize))
+//
+//	require.True(t, sc.Scan())
+//	require.NotEmpty(t, sc.Bytes())
+//	require.False(t, sc.Scan())
+//	require.ErrorIs(t, sc.Err(), rscanner.ErrTooLong)
+//}
