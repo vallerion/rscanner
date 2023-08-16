@@ -172,11 +172,11 @@ func (r *negativeEOFReader) ReadAt(p []byte, off int64) (int, error) {
 }
 
 // Test that the scanner doesn't panic and returns ErrBadReadCount
-//func TestNegativeEOFReader(t *testing.T) {
-//	r := negativeEOFReader(9)
-//	sc := rscanner.NewScanner(&r, 10)
-//	require.True(t, sc.Scan())
-//	require.True(t, sc.Scan())
-//	require.False(t, sc.Scan())
-//	require.ErrorIs(t, sc.Err(), rscanner.ErrBadReadCount)
-//}
+func TestNegativeEOFReader(t *testing.T) {
+	r := negativeEOFReader(9)
+	sc := rscanner.NewScanner(&r, 10)
+	require.True(t, sc.Scan())
+	require.True(t, sc.Scan())
+	require.False(t, sc.Scan())
+	require.ErrorIs(t, sc.Err(), rscanner.ErrBadReadCount)
+}

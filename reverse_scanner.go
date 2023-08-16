@@ -91,6 +91,10 @@ func (bs *Scanner) Scan() bool {
 				if n == 0 {
 					emptyReads++
 				}
+				//if n < bs.start && bs.start == bs.bufSize {
+				//	bs.end = n
+				//	break
+				//}
 				if emptyReads > bs.maxConsecutiveEmptyReads {
 					bs.setErr(io.ErrNoProgress)
 					return false
