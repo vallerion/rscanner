@@ -140,9 +140,15 @@ func (bs *Scanner) Scan() bool {
 		//}
 
 		if bs.rOffset == 0 {
-			bs.token = bytes.Trim(bs.buf[bs.start:bs.end], "\r\n")
-			bs.done = true
-			return true
+			if bs.start < bs.end {
+				bs.token = bytes.Trim(bs.buf[bs.start:bs.end], "\r\n")
+				bs.done = true
+				return true
+			} else {
+				bs.token = nil
+				bs.done = true
+				return false
+			}
 		}
 
 		// Here we need more data to be loaded.
@@ -153,11 +159,9 @@ func (bs *Scanner) Scan() bool {
 			if bs.rOffset < int64(d) {
 				d = int(bs.rOffset)
 			}
-			cleann(bs.buf, bs.start, bs.end)
 			copy(bs.buf[bs.start+d:bs.end+d], bs.buf[bs.start:bs.end])
 			bs.start += d
 			bs.end += d
-			cleann(bs.buf, bs.start, bs.end)
 		}
 
 		if bs.start == 0 {
@@ -239,13 +243,4 @@ func ScanLines(data []byte) (advance int, token []byte, err error) {
 
 	// Request more data.
 	return 0, nil, nil
-}
-
-func cleann(data []byte, start, end int) {
-	for i := 0; i < start; i++ {
-		data[i] = '_'
-	}
-	for i := end; i < len(data); i++ {
-		data[i] = '_'
-	}
 }

@@ -103,14 +103,16 @@ func TestScanVsBufioScannerSlowReader(t *testing.T) {
 	expSc := bufio.NewScanner(&slowReader{buf: strings.NewReader(rev), max: 1})
 	actSc := rscanner.NewScanner(&slowReaderAt{buf: strings.NewReader(act), max: 1}, int64(len(act)))
 
-	for i := 0; i < 8; i++ {
-		require.Equal(t, expSc.Scan(), actSc.Scan())
+	for {
+		e, a := expSc.Scan(), actSc.Scan()
+
+		require.Equal(t, e, a)
 		require.Equal(t, expSc.Err(), actSc.Err())
 		require.Equal(t, expSc.Bytes(), actSc.Bytes())
+		if a == false {
+			break
+		}
 	}
-	require.Equal(t, expSc.Scan(), actSc.Scan())
-	require.Equal(t, expSc.Err(), actSc.Err())
-	require.Equal(t, expSc.Bytes(), actSc.Bytes())
 }
 
 func TestScanLines(t *testing.T) {
@@ -164,7 +166,7 @@ func (r *negativeEOFReader) ReadAt(p []byte, off int64) (int, error) {
 		for i := 0; i < c; i++ {
 			p[i] = 'a'
 		}
-		p[c-1] = '\n'
+		p[0] = '\n'
 		*r -= negativeEOFReader(c)
 		return c, nil
 	}
@@ -173,10 +175,76 @@ func (r *negativeEOFReader) ReadAt(p []byte, off int64) (int, error) {
 
 // Test that the scanner doesn't panic and returns ErrBadReadCount
 func TestNegativeEOFReader(t *testing.T) {
-	r := negativeEOFReader(9)
-	sc := rscanner.NewScanner(&r, 10)
-	require.True(t, sc.Scan())
+	r := negativeEOFReader(12)
+	sc := rscanner.NewScanner(&r, 13)
+	sc.Buffer(make([]byte, 10))
+
 	require.True(t, sc.Scan())
 	require.False(t, sc.Scan())
 	require.ErrorIs(t, sc.Err(), rscanner.ErrBadReadCount)
+}
+
+// Test that the line splitter handles a final line without a newline.
+func testNoNewline(text string, lines []string, t *testing.T) {
+	ss := rscanner.NewScanner(&slowReaderAt{7, strings.NewReader(text)}, int64(len(text)))
+
+	for lineNum := 0; ss.Scan(); lineNum++ {
+		require.Equal(t, ss.Text(), lines[lineNum])
+	}
+	require.False(t, ss.Scan())
+	require.Nil(t, ss.Err())
+}
+
+// Test that the line splitter handles a final line without a newline.
+func TestScanLineNoNewline(t *testing.T) {
+	const text = "abcdefghijklmn\nopqrstuvwxyz"
+	lines := []string{
+		"opqrstuvwxyz",
+		"abcdefghijklmn",
+	}
+	testNoNewline(text, lines, t)
+}
+
+// Test that the line splitter handles a final line with a carriage return but no newline.
+func TestScanLineReturnButNoNewline(t *testing.T) {
+	const text = "abcdefghijklmn\nopqrstuvwxyz\r"
+	lines := []string{
+		"opqrstuvwxyz",
+		"abcdefghijklmn",
+	}
+	testNoNewline(text, lines, t)
+}
+
+// Test that the line splitter handles a final empty line.
+func TestScanLineEmptyStartLine(t *testing.T) {
+	const text = "\n\nopqrstuvwxyz\nabcdefghijklmn"
+	lines := []string{
+		"abcdefghijklmn",
+		"opqrstuvwxyz",
+		"",
+	}
+	testNoNewline(text, lines, t)
+}
+
+// Test that the line splitter handles a final empty line.
+func TestScanLineEmptyFinalLine(t *testing.T) {
+	const text = "\nopqrstuvwxyz\nabcdefghijklmn\n\n"
+	lines := []string{
+		"",
+		"",
+		"abcdefghijklmn",
+		"opqrstuvwxyz",
+	}
+	testNoNewline(text, lines, t)
+}
+
+// Test that the line splitter handles a final empty line with a carriage return but no newline.
+func TestScanLineEmptyFinalLineWithCR(t *testing.T) {
+	const text = "abcdefghijklmn\nopqrstuvwxyz\n\r"
+	lines := []string{
+		"",
+		"opqrstuvwxyz",
+		"abcdefghijklmn",
+	}
+	testNoNewline(text, lines, t)
 }
