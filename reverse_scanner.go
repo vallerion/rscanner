@@ -32,7 +32,6 @@ func NewScanner(r io.ReaderAt, readerSize int64) *Scanner {
 		split:                    ScanLines,
 		start:                    bufSize,
 		end:                      bufSize,
-		rSize:                    readerSize,
 		rOffset:                  readerSize,
 		r:                        r,
 		maxConsecutiveEmptyReads: defaultMaxConsecutiveEmptyReads,
@@ -40,22 +39,22 @@ func NewScanner(r io.ReaderAt, readerSize int64) *Scanner {
 }
 
 type Scanner struct {
-	maxTokenSize             int
-	token                    []byte
-	buf                      []byte
-	bufSize                  int // 3
-	start, end               int
-	rOffset                  int64
-	r                        io.ReaderAt
-	rSize                    int64
-	split                    SplitFunc
-	err                      error
-	done                     bool
-	scanCalled               bool
-	maxConsecutiveEmptyReads int
+	maxTokenSize             int         // Maximum size of a token.
+	token                    []byte      // Last token returned by split.
+	buf                      []byte      // Buffer used as argument to split.
+	bufSize                  int         // Size of the buffer.
+	start, end               int         // Start and End of data to be scanned in buf.
+	rOffset                  int64       // Reader offset.
+	r                        io.ReaderAt // The reader provided by the user.
+	split                    SplitFunc   // The function to split the tokens, can be provided by user.
+	err                      error       // Sticky error.
+	done                     bool        // Scan has finished.
+	scanCalled               bool        // Scan has been called; buffer is in use.
+	maxConsecutiveEmptyReads int         // How many empty r reads allowed.
 }
 
 func (bs *Scanner) Scan() bool {
+	// First check if scanner is done or there is an error.
 	if bs.done || bs.err != nil {
 		bs.token = nil
 		bs.start = bs.bufSize
@@ -67,16 +66,22 @@ func (bs *Scanner) Scan() bool {
 	for {
 		// Read data if there is unused space in buf before start.
 		if bs.start > 0 {
-			// Decrease offset to load fill all available buf
+			// Decrease offset to load fill all available buf.
 			bs.decreaseOffset(int64(bs.start))
 
 			if len(bs.buf) == 0 {
 				bs.buf = make([]byte, bs.bufSize)
 			}
 
+			// Here we run for-loop in case if reader is slow.
+			// It happens wht it's known the reader has N elements,
+			// and we have enough available buffer for N elements,
+			// but we read < N.
+			// So we run a loop until we fully read it.
 			off := bs.rOffset
 			for left, emptyReads := 0, 0; left < bs.start; {
 				n, err := bs.r.ReadAt(bs.buf[left:bs.start], off)
+				// If reader misbehave.
 				if n < 0 || n > bs.start {
 					bs.setErr(ErrBadReadCount)
 					return false
@@ -88,13 +93,10 @@ func (bs *Scanner) Scan() bool {
 				left += n
 				off += int64(n)
 
+				// Track empty reads to avoid endless loop.
 				if n == 0 {
 					emptyReads++
 				}
-				//if n < bs.start && bs.start == bs.bufSize {
-				//	bs.end = n
-				//	break
-				//}
 				if emptyReads > bs.maxConsecutiveEmptyReads {
 					bs.setErr(io.ErrNoProgress)
 					return false
@@ -105,12 +107,12 @@ func (bs *Scanner) Scan() bool {
 
 		advance, token, err := bs.split(bs.buf[bs.start:bs.end])
 		if err != nil {
-			// todo ErrFinalToken
 			bs.setErr(err)
 			return false
 		}
 		bs.token = token
 
+		// If split function misbehave.
 		if advance < 0 {
 			bs.setErr(ErrNegativeAdvance)
 			return false
@@ -121,23 +123,12 @@ func (bs *Scanner) Scan() bool {
 			return false
 		}
 
+		// If advance>0 and token is nil when token is empty string.
+		// If token is not nil and advance=0 when token was found on beginning of the buf.
 		if advance > 0 || token != nil {
 			bs.end = bs.start + advance
 			return true
 		}
-
-		//if token != nil {
-		//	bs.token = token
-		//	todo s.empties
-		//return true
-		//}
-
-		//if bs.err != nil {
-		//	// Shut it down.
-		//	bs.start = bs.bufSize
-		//	bs.end = bs.bufSize
-		//	return false
-		//}
 
 		if bs.rOffset == 0 {
 			if bs.start < bs.end {
@@ -152,9 +143,10 @@ func (bs *Scanner) Scan() bool {
 		}
 
 		// Here we need more data to be loaded.
-		// First we can get some more space in buf by moving bytes in buf.
-		// Second we can increase buf size.
-		if bs.end < bs.bufSize {
+		// First we can get some more space in buf by moving bytes in buf
+		// from left to right, so more data could be loaded before start.
+		// For optimization let's move only then end less than half of buf.
+		if bs.end < bs.bufSize/2 {
 			d := bs.bufSize - bs.end
 			if bs.rOffset < int64(d) {
 				d = int(bs.rOffset)
@@ -164,6 +156,7 @@ func (bs *Scanner) Scan() bool {
 			bs.end += d
 		}
 
+		// Second we can increase buf size.
 		if bs.start == 0 {
 			if bs.bufSize >= bs.maxTokenSize || bs.bufSize > math.MaxInt/2 {
 				bs.setErr(ErrTooLong)

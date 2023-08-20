@@ -120,6 +120,9 @@ func TestScanLines(t *testing.T) {
 	for tokenSize := 1; tokenSize < 256; tokenSize++ {
 		testLines(t, tokenSize*2, true)
 	}
+	for tokenSize := 1; tokenSize < 256; tokenSize++ {
+		testLines(t, tokenSize*2, false)
+	}
 }
 
 func TestScanTooLong(t *testing.T) {
