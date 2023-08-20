@@ -2,6 +2,7 @@ package rscanner_test
 
 import (
 	"bufio"
+	"errors"
 	"github.com/stretchr/testify/require"
 	"github.com/vallerion/rscanner"
 	"golang.org/x/exp/slices"
@@ -139,6 +140,69 @@ func TestScanTooLong(t *testing.T) {
 	require.ErrorIs(t, sc.Err(), rscanner.ErrTooLong)
 }
 
+func TestScanBufReachMaxTokenSize(t *testing.T) {
+	tokenSize, bufSize := 15, 10
+	lines := generateLines(tokenSize-1, 3)
+
+	slices.Reverse(lines)
+	s := strings.Join(lines, "\n")
+
+	r := strings.NewReader(s)
+	sc := rscanner.NewScanner(&slowReaderAt{1, r}, int64(len(s)))
+	sc.MaxTokenSize(tokenSize)
+	sc.Buffer(make([]byte, bufSize))
+
+	require.True(t, sc.Scan())
+	require.NotEmpty(t, sc.Bytes())
+	require.False(t, sc.Scan())
+	require.ErrorIs(t, sc.Err(), rscanner.ErrTooLong)
+}
+
+func TestScanSmallInitBuf(t *testing.T) {
+	tokenSize := 10
+	n := 101
+	lines := generateLines(1, n)
+
+	s := strings.Join(lines, "\n")
+
+	r := strings.NewReader(s)
+	sc := rscanner.NewScanner(&slowReaderAt{1, r}, int64(len(s)))
+	sc.Buffer(make([]byte, tokenSize))
+
+	for n > 0 {
+		require.True(t, sc.Scan())
+		require.NotEmpty(t, sc.Bytes())
+		require.Nil(t, sc.Err())
+		n--
+	}
+
+	require.False(t, sc.Scan())
+	require.Empty(t, sc.Bytes())
+	require.Nil(t, sc.Err())
+}
+
+func TestScanZeroInitBuf(t *testing.T) {
+	n := 101
+	lines := generateLines(1, n)
+
+	s := strings.Join(lines, "\n")
+
+	r := strings.NewReader(s)
+	sc := rscanner.NewScanner(&slowReaderAt{1, r}, int64(len(s)))
+	sc.Buffer(make([]byte, 0))
+
+	for n > 0 {
+		require.True(t, sc.Scan())
+		require.NotEmpty(t, sc.Bytes())
+		require.Nil(t, sc.Err())
+		n--
+	}
+
+	require.False(t, sc.Scan())
+	require.Empty(t, sc.Bytes())
+	require.Nil(t, sc.Err())
+}
+
 // largeReader returns an invalid count that is larger than the number
 // of bytes requested.
 type largeReaderAt struct{}
@@ -215,7 +279,7 @@ func TestScanLineReturnButNoNewline(t *testing.T) {
 	testNoNewline(text, lines, t)
 }
 
-// Test that the line splitter handles a final empty line.
+// Test that the line splitter handles empty line at begin.
 func TestScanLineEmptyStartLine(t *testing.T) {
 	const text = "\n\nopqrstuvwxyz\nabcdefghijklmn"
 	lines := []string{
@@ -247,4 +311,133 @@ func TestScanLineEmptyFinalLineWithCR(t *testing.T) {
 		"abcdefghijklmn",
 	}
 	testNoNewline(text, lines, t)
+}
+
+var splitError = errors.New("testError")
+
+// Test the correct error is returned when the split function errors out.
+func TestSplitError(t *testing.T) {
+	// Create a split function that delivers a little data, then a predictable error.
+	numSplits := 0
+	const okCount = 7
+	errorSplit := func(data []byte) (advance int, token []byte, err error) {
+		if numSplits >= okCount {
+			return 0, nil, splitError
+		}
+		numSplits++
+		return len(data) - 1, data[len(data)-1:], nil
+	}
+	// Read the data.
+	const text = "abcdefghijklmnopqrstuvwxyz"
+	s := rscanner.NewScanner(&slowReaderAt{1, strings.NewReader(text)}, int64(len(text)))
+	s.Split(errorSplit)
+	for i := len(text) - 1; i >= len(text)-okCount; i-- {
+		require.True(t, s.Scan())
+		require.Len(t, s.Bytes(), 1)
+		require.Equal(t, text[i], s.Bytes()[0])
+	}
+
+	require.False(t, s.Scan())
+	require.ErrorIs(t, s.Err(), splitError)
+}
+
+// Test the correct error is returned when the split function errors out.
+func TestSplitNegativeAdvance(t *testing.T) {
+	// Create a split function that delivers a little data, then a predictable error.
+	numSplits := 0
+	const okCount = 7
+	errorSplit := func(data []byte) (advance int, token []byte, err error) {
+		if numSplits >= okCount {
+			return -1, data[len(data)-1:], nil
+		}
+		numSplits++
+		return len(data) - 1, data[len(data)-1:], nil
+	}
+	// Read the data.
+	const text = "abcdefghijklmnopqrstuvwxyz"
+	s := rscanner.NewScanner(&slowReaderAt{1, strings.NewReader(text)}, int64(len(text)))
+	s.Split(errorSplit)
+
+	for i := len(text) - 1; i >= len(text)-okCount; i-- {
+		require.True(t, s.Scan())
+		require.Len(t, s.Bytes(), 1)
+		require.Equal(t, text[i], s.Bytes()[0])
+	}
+
+	require.False(t, s.Scan())
+	require.ErrorIs(t, s.Err(), rscanner.ErrNegativeAdvance)
+}
+
+// Test the correct error is returned when the split function errors out.
+func TestSplitAdvanceMoreThanBuffer(t *testing.T) {
+	// Create a split function that delivers a little data, then a predictable error.
+	numSplits := 0
+	const okCount = 7
+	const bufSize = 10
+	errorSplit := func(data []byte) (advance int, token []byte, err error) {
+		if numSplits >= okCount {
+			return bufSize + 1, data[len(data)-1:], nil
+		}
+		numSplits++
+		return len(data) - 1, data[len(data)-1:], nil
+	}
+	// Read the data.
+	const text = "abcdefghijklmnopqrstuvwxyz"
+	s := rscanner.NewScanner(&slowReaderAt{1, strings.NewReader(text)}, int64(len(text)))
+	s.Split(errorSplit)
+	s.Buffer(make([]byte, bufSize))
+
+	for i := len(text) - 1; i >= len(text)-okCount; i-- {
+		require.True(t, s.Scan())
+		require.Len(t, s.Bytes(), 1)
+		require.Equal(t, text[i], s.Bytes()[0])
+	}
+
+	require.False(t, s.Scan())
+	require.ErrorIs(t, s.Err(), rscanner.ErrAdvanceTooFar)
+}
+
+// Test the correct error is returned when the split function errors out.
+func TestSplitReturnAlwaysNothing(t *testing.T) {
+	maxConsecutiveEmptyReads := 100
+	errorSplit := func(data []byte) (advance int, token []byte, err error) {
+		return 0, nil, nil
+	}
+	// Read the data.
+	const text = "abcdefghijklmnopqrstuvwxyz"
+	s := rscanner.NewScanner(&slowReaderAt{1, strings.NewReader(text)}, int64(len(text)))
+	s.Split(errorSplit)
+	s.MaxConsecutiveEmptyReads(maxConsecutiveEmptyReads)
+
+	require.True(t, s.Scan())
+	require.Equal(t, []byte(text), s.Bytes())
+	require.Nil(t, s.Err())
+}
+
+type alwaysErrorReaderAt struct{}
+
+func (alwaysErrorReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	return 0, io.ErrUnexpectedEOF
+}
+
+func TestNonEOFWithEmptyRead(t *testing.T) {
+	scanner := rscanner.NewScanner(alwaysErrorReaderAt{}, 10)
+
+	require.False(t, scanner.Scan())
+	require.ErrorIs(t, scanner.Err(), io.ErrUnexpectedEOF)
+}
+
+// Test that Scan finishes if we have endless empty reads.
+type endlessZeros struct{}
+
+func (endlessZeros) ReadAt(p []byte, off int64) (int, error) {
+	return 0, nil
+}
+
+func TestBadReader(t *testing.T) {
+	s := rscanner.NewScanner(endlessZeros{}, 11)
+	s.MaxConsecutiveEmptyReads(10)
+
+	require.False(t, s.Scan())
+	require.ErrorIs(t, s.Err(), io.ErrNoProgress)
 }

@@ -17,11 +17,11 @@ var (
 	ErrBadReadCount    = errors.New("rscanner.Scanner: Read returned impossible count")
 )
 
-const StartBufSize = 4096
+const defaultBufSize = 4096
 const defaultMaxConsecutiveEmptyReads = 100
 
 func NewScanner(r io.ReaderAt, readerSize int64) *Scanner {
-	bufSize := StartBufSize
+	bufSize := defaultBufSize
 	if readerSize < int64(bufSize) {
 		bufSize = int(readerSize)
 	}
@@ -172,7 +172,7 @@ func (bs *Scanner) Scan() bool {
 
 			newSize := bs.bufSize * 2
 			if newSize == 0 {
-				newSize = StartBufSize
+				newSize = defaultBufSize
 			}
 			if newSize > bs.maxTokenSize {
 				newSize = bs.maxTokenSize
@@ -234,6 +234,10 @@ func (bs *Scanner) setErr(err error) {
 	if bs.err == nil {
 		bs.err = err
 	}
+}
+
+func (bs *Scanner) MaxConsecutiveEmptyReads(v int) {
+	bs.maxConsecutiveEmptyReads = v
 }
 
 func ScanLines(data []byte) (advance int, token []byte, err error) {
