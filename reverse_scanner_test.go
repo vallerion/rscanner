@@ -11,8 +11,8 @@ import (
 	"testing"
 )
 
-// slowReader is a reader that returns only a few bytes at a time, to test the incremental
-// reads in Scanner.Scan.
+// slowReaderAt is io.ReaderAt that returns only a few bytes at a time,
+// to test the incremental reads.
 type slowReaderAt struct {
 	max int
 	buf io.ReaderAt
@@ -25,6 +25,7 @@ func (sr *slowReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
 	return sr.buf.ReadAt(p, off)
 }
 
+// slowReader is needed to compare rscanner with other scanners.
 type slowReader struct {
 	max int
 	buf io.Reader
@@ -46,6 +47,8 @@ func generateLines(minLength, n int) []string {
 	return lines
 }
 
+// Tests that scanner can read all generated lines
+// with specified token size with or without CR.
 func testLines(t *testing.T, minLength, tokenSize int, withCR bool) {
 	lines := generateLines(minLength, tokenSize*2)
 
@@ -74,6 +77,7 @@ func testLines(t *testing.T, minLength, tokenSize int, withCR bool) {
 	require.Nil(t, sc.Err())
 }
 
+// Test scanner with different size of token.
 func TestScanLines(t *testing.T) {
 	for tokenSize := 1; tokenSize < 256; tokenSize++ {
 		testLines(t, 1, tokenSize*2, true)
@@ -83,6 +87,7 @@ func TestScanLines(t *testing.T) {
 	}
 }
 
+// Test to compare rscanner.Scanner with bufio.Scanner.
 func TestScanVsBufioScanner(t *testing.T) {
 	l := generateLines(0, 1000)
 
@@ -103,6 +108,7 @@ func TestScanVsBufioScanner(t *testing.T) {
 	require.Equal(t, expSc.Bytes(), actSc.Bytes())
 }
 
+// Test to compare rscanner.Scanner with bufio.Scanner while both read from slow readers.
 func TestScanVsBufioScannerSlowReader(t *testing.T) {
 	l := generateLines(0, 1000)
 
@@ -125,24 +131,7 @@ func TestScanVsBufioScannerSlowReader(t *testing.T) {
 	}
 }
 
-func TestScanTooLong(t *testing.T) {
-	tokenSize := 10
-	lines := generateLines(tokenSize-1, 3)
-
-	slices.Reverse(lines)
-	s := strings.Join(lines, "\n")
-
-	r := strings.NewReader(s)
-	sc := rscanner.NewScanner(&slowReaderAt{1, r}, int64(len(s)))
-	sc.MaxTokenSize(tokenSize)
-	sc.Buffer(make([]byte, tokenSize))
-
-	require.True(t, sc.Scan())
-	require.NotEmpty(t, sc.Bytes())
-	require.False(t, sc.Scan())
-	require.ErrorIs(t, sc.Err(), rscanner.ErrTooLong)
-}
-
+// Test what happen if buffer become bigger than max allowed token
 func TestScanBufReachMaxTokenSize(t *testing.T) {
 	tokenSize, bufSize := 15, 10
 	lines := generateLines(tokenSize-1, 3)
@@ -161,8 +150,9 @@ func TestScanBufReachMaxTokenSize(t *testing.T) {
 	require.ErrorIs(t, sc.Err(), rscanner.ErrTooLong)
 }
 
+// Test when user provided buffer is small.
 func TestScanSmallInitBuf(t *testing.T) {
-	tokenSize := 10
+	bufSize := 10
 	n := 101
 	lines := generateLines(1, n)
 
@@ -170,7 +160,7 @@ func TestScanSmallInitBuf(t *testing.T) {
 
 	r := strings.NewReader(s)
 	sc := rscanner.NewScanner(&slowReaderAt{1, r}, int64(len(s)))
-	sc.Buffer(make([]byte, tokenSize))
+	sc.Buffer(make([]byte, bufSize))
 
 	for n > 0 {
 		require.True(t, sc.Scan())
@@ -184,6 +174,7 @@ func TestScanSmallInitBuf(t *testing.T) {
 	require.Nil(t, sc.Err())
 }
 
+// Test when user provided empty buffer.
 func TestScanZeroInitBuf(t *testing.T) {
 	n := 101
 	lines := generateLines(1, n)
@@ -251,7 +242,6 @@ func TestNegativeEOFReader(t *testing.T) {
 	require.ErrorIs(t, sc.Err(), rscanner.ErrBadReadCount)
 }
 
-// Test that the line splitter handles a final line without a newline.
 func testNoNewline(text string, lines []string, t *testing.T) {
 	ss := rscanner.NewScanner(&slowReaderAt{7, strings.NewReader(text)}, int64(len(text)))
 
@@ -330,7 +320,7 @@ func TestSplitError(t *testing.T) {
 		numSplits++
 		return len(data) - 1, data[len(data)-1:], nil
 	}
-	// Read the data.
+
 	const text = "abcdefghijklmnopqrstuvwxyz"
 	s := rscanner.NewScanner(&slowReaderAt{1, strings.NewReader(text)}, int64(len(text)))
 	s.Split(errorSplit)
@@ -344,9 +334,7 @@ func TestSplitError(t *testing.T) {
 	require.ErrorIs(t, s.Err(), splitError)
 }
 
-// Test the correct error is returned when the split function errors out.
 func TestSplitNegativeAdvance(t *testing.T) {
-	// Create a split function that delivers a little data, then a predictable error.
 	numSplits := 0
 	const okCount = 7
 	errorSplit := func(data []byte) (advance int, token []byte, err error) {
@@ -371,9 +359,7 @@ func TestSplitNegativeAdvance(t *testing.T) {
 	require.ErrorIs(t, s.Err(), rscanner.ErrNegativeAdvance)
 }
 
-// Test the correct error is returned when the split function errors out.
 func TestSplitAdvanceMoreThanBuffer(t *testing.T) {
-	// Create a split function that delivers a little data, then a predictable error.
 	numSplits := 0
 	const okCount = 7
 	const bufSize = 10
@@ -384,7 +370,7 @@ func TestSplitAdvanceMoreThanBuffer(t *testing.T) {
 		numSplits++
 		return len(data) - 1, data[len(data)-1:], nil
 	}
-	// Read the data.
+
 	const text = "abcdefghijklmnopqrstuvwxyz"
 	s := rscanner.NewScanner(&slowReaderAt{1, strings.NewReader(text)}, int64(len(text)))
 	s.Split(errorSplit)
@@ -400,9 +386,8 @@ func TestSplitAdvanceMoreThanBuffer(t *testing.T) {
 	require.ErrorIs(t, s.Err(), rscanner.ErrAdvanceTooFar)
 }
 
-// Test the correct error is returned when the split function errors out.
 func TestSplitReturnAlwaysNothing(t *testing.T) {
-	maxConsecutiveEmptyReads := 100
+	maxConsecutiveEmptyReads := 1
 	errorSplit := func(data []byte) (advance int, token []byte, err error) {
 		return 0, nil, nil
 	}
@@ -423,6 +408,7 @@ func (alwaysErrorReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	return 0, io.ErrUnexpectedEOF
 }
 
+// Test when reader misbehave.
 func TestNonEOFWithEmptyRead(t *testing.T) {
 	scanner := rscanner.NewScanner(alwaysErrorReaderAt{}, 10)
 
@@ -430,14 +416,14 @@ func TestNonEOFWithEmptyRead(t *testing.T) {
 	require.ErrorIs(t, scanner.Err(), io.ErrUnexpectedEOF)
 }
 
-// Test that Scan finishes if we have endless empty reads.
+// Test that Scanner.Scan finishes if we have endless empty reads.
 type endlessZeros struct{}
 
 func (endlessZeros) ReadAt(p []byte, off int64) (int, error) {
 	return 0, nil
 }
 
-func TestBadReader(t *testing.T) {
+func TestEndlessReader(t *testing.T) {
 	s := rscanner.NewScanner(endlessZeros{}, 11)
 	s.MaxConsecutiveEmptyReads(10)
 
