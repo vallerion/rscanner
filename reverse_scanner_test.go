@@ -46,8 +46,8 @@ func generateLines(minLength, n int) []string {
 	return lines
 }
 
-func testLines(t *testing.T, tokenSize int, withCR bool) {
-	lines := generateLines(0, tokenSize*2)
+func testLines(t *testing.T, minLength, tokenSize int, withCR bool) {
+	lines := generateLines(minLength, tokenSize*2)
 
 	var s string
 	if withCR {
@@ -72,6 +72,15 @@ func testLines(t *testing.T, tokenSize int, withCR bool) {
 
 	require.False(t, sc.Scan())
 	require.Nil(t, sc.Err())
+}
+
+func TestScanLines(t *testing.T) {
+	for tokenSize := 1; tokenSize < 256; tokenSize++ {
+		testLines(t, 1, tokenSize*2, true)
+	}
+	for tokenSize := 1; tokenSize < 256; tokenSize++ {
+		testLines(t, 1, tokenSize*2, false)
+	}
 }
 
 func TestScanVsBufioScanner(t *testing.T) {
@@ -113,15 +122,6 @@ func TestScanVsBufioScannerSlowReader(t *testing.T) {
 		if a == false {
 			break
 		}
-	}
-}
-
-func TestScanLines(t *testing.T) {
-	for tokenSize := 1; tokenSize < 256; tokenSize++ {
-		testLines(t, tokenSize*2, true)
-	}
-	for tokenSize := 1; tokenSize < 256; tokenSize++ {
-		testLines(t, tokenSize*2, false)
 	}
 }
 
