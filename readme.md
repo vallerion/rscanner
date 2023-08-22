@@ -3,7 +3,7 @@
 ![Build Status](https://github.com/vallerion/rscanner/actions/workflows/go.yml/badge.svg)
 [![Go Reference](https://pkg.go.dev/badge/github.com/vallerion/rscanner.svg)](https://pkg.go.dev/github.com/vallerion/rscanner)
 [![Go Report Card](https://goreportcard.com/badge/github.com/vallerion/rscanner)](https://goreportcard.com/report/github.com/vallerion/rscanner)
-[![codecov](https://codecov.io/gh/vallerion/rscanner/branch/master/graph/badge.svg)](https://codecov.io/gh/vallerion/rscanner)
+[![codecov](https://codecov.io/gh/vallerion/rscanner/graph/badge.svg?token=JCZZYTIWMD)](https://codecov.io/gh/vallerion/rscanner)
 
 Have you ever found yourself in a situation where you need to read a file or another readable source from the end to the
 start? While `bufio.Scanner` only supports reading from the start, `rscanner.Scanner` offers the capability to read from
